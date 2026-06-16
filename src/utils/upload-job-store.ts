@@ -28,13 +28,16 @@ export async function loadJobs() {
                 completedAt: job.completedAt ? new Date(job.completedAt) : undefined,
             });
         }
+        let hadStale = false;
         for (const job of uploadJobs.values()) {
             if (job.jobStatus === "Running" || job.jobStatus === "Pending") {
                 job.jobStatus = "Error";
                 job.error = "Upload interrupted — server restarted";
                 job.completedAt = new Date();
+                hadStale = true;
             }
-        } 
+        }
+        if (hadStale) await persistJobs();
 
     } catch(error: any){
         if (error?.code !== "ENOENT"){

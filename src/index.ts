@@ -5,6 +5,7 @@ import { registerListModelRepos } from "./tools/list-model-repos";
 import { registerUploadModel } from "./tools/upload-model";
 import { registerGetModelUploadStatus } from "./tools/get-model-upload-status";
 import { loadJobs } from "./utils/upload-job-store";
+import { ensureAuthenticated } from "./client";
 
 const server = new McpServer({
   name: "hf-mcp",
@@ -17,8 +18,9 @@ registerUploadModel(server);
 registerGetModelUploadStatus(server);
 
 async function main() {
-  const transport = new StdioServerTransport();
+  await ensureAuthenticated();
   await loadJobs();
+  const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write("hf-mcp started\n");
 }

@@ -41,13 +41,13 @@ async function runUpload(
         job.jobStatus = "Done";
         job.completedAt = new Date();
         logger.info(`[${job.jobId}] upload complete`);
-        await persistJobs().catch(() => {});
+        await persistJobs();
     } catch (error) {
         job.jobStatus = "Error";
         job.error = error instanceof Error ? error.message : String(error);
         job.completedAt = new Date();
         logger.error({ error }, `[${job.jobId}] upload failed`);
-        await persistJobs().catch(() => {});
+        await persistJobs();
     }
 }
 
@@ -90,14 +90,14 @@ export function registerUploadModel(server: McpServer) {
                     startedAt: new Date(),
                 };
                 uploadJobs.set(jobId, job);
-                await persistJobs().catch(() => {})
+                await persistJobs()
 
                 runUpload(job, files, repo, input.commitMessage, accessToken).catch(() => {});
 
                 return {
                     content: [{
                         type: "text" as const,
-                        text: JSON.stringify({ jobId, repoUrl, message: "Upload started. Use get_upload_status to track progress." }, null, 2),
+                        text: JSON.stringify({ jobId, repoUrl, message: "Upload started. Use get_model_upload_status to track progress." }, null, 2),
                     }],
                 };
             } catch (error) {

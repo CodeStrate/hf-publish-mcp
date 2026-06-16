@@ -35,7 +35,7 @@ export function registerGetModelUploadStatus(server: McpServer) {
 
                 if (job.jobStatus === "Running"){
                     result.phase = job.phase;
-                    result.currentFile = job.currentFile;
+                    if (job.currentFile) result.currentFile = job.currentFile;
                 }
                 if (job.jobStatus === "Error"){
                     result.error = job.error;
