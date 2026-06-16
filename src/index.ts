@@ -3,6 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { registerDescribeRepo } from "./tools/describe-repo";
 import { registerListModelRepos } from "./tools/list-model-repos";
 import { registerUploadModel } from "./tools/upload-model";
+import { registerGetModelUploadStatus } from "./tools/get-model-upload-status";
+import { loadJobs } from "./utils/upload-job-store";
 
 const server = new McpServer({
   name: "hf-mcp",
@@ -12,9 +14,11 @@ const server = new McpServer({
 registerDescribeRepo(server);
 registerListModelRepos(server);
 registerUploadModel(server);
+registerGetModelUploadStatus(server);
 
 async function main() {
   const transport = new StdioServerTransport();
+  await loadJobs();
   await server.connect(transport);
   process.stderr.write("hf-mcp started\n");
 }

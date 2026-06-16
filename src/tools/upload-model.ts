@@ -1,10 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {z} from "zod";
+import { z } from "zod";
 import { logger } from "../logger";
 import { getHFToken } from "../client";
-import { createRepo, uploadFiles } from "@huggingface/hub";
+import { createRepo, uploadFilesWithProgress } from "@huggingface/hub";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { uploadJobs, type UploadJob } from "../types/upload-job";
+import { persistJobs } from "../utils/upload-job-store";
 
 
 async function collectFilesForUpload(directory:string): Promise<{path: string; content: Blob}[]> {
@@ -18,55 +20,93 @@ async function collectFilesForUpload(directory:string): Promise<{path: string; c
 }
 
 
+async function runUpload(
+    job: UploadJob,
+    files: { path: string; content: Blob }[],
+    repo: { type: "model" | "dataset" | "space"; name: string },
+    commitMessage: string,
+    accessToken: string
+) {
+    job.jobStatus = "Running";
+    try {
+        const gen = uploadFilesWithProgress({ repo, files, commitTitle: commitMessage, accessToken });
+        for await (const event of gen) {
+            if (event.event === "phase") {
+                job.phase = event.phase;
+                logger.info(`[${job.jobId}] phase: ${event.phase}`);
+            } else if (event.event === "fileProgress" && event.state === "uploading") {
+                job.currentFile = event.path;
+            }
+        }
+        job.jobStatus = "Done";
+        job.completedAt = new Date();
+        logger.info(`[${job.jobId}] upload complete`);
+        await persistJobs().catch(() => {});
+    } catch (error) {
+        job.jobStatus = "Error";
+        job.error = error instanceof Error ? error.message : String(error);
+        job.completedAt = new Date();
+        logger.error({ error }, `[${job.jobId}] upload failed`);
+        await persistJobs().catch(() => {});
+    }
+}
+
 export function registerUploadModel(server: McpServer) {
     server.registerTool(
         "upload_model",
         {
-            description:
-            "Upload specified model or adapter directory to HuggingFace.",
+            description: "Upload a model or adapter directory to HuggingFace. Returns a jobId immediately — use get_model_upload_status to track progress.",
             inputSchema: {
-                repoId : z.string().describe("Owner/repo-name, e.g. google/gemma-4-12B, created if absent."),
+                repoId: z.string().describe("Owner/repo-name, e.g. google/gemma-4-12B, created if absent."),
                 localDir: z.string().describe("Absolute path to the model/checkpoint/adapter directory."),
                 repoType: z.enum(["model", "dataset", "space"]).default("model").describe("The type of repository: model (default), dataset, space"),
                 visibility: z.enum(["public", "private", "protected"]).default("public").describe("Repository visibility"),
-                commitMessage: z.string().describe("Commit Message for the repository").default("Upload Files")
+                commitMessage: z.string().default("Upload model files").describe("Commit message"),
             },
         },
-
         async (input) => {
-            logger.info(`Uploading ${input.localDir} to HuggingFace as ${input.repoId}`)
             try {
                 const accessToken = getHFToken();
+                const repo = { type: input.repoType, name: input.repoId };
 
-                const { repoUrl } = await createRepo({ repo: { type: input.repoType, name: input.repoId }, visibility: input.visibility, accessToken });
-
-                const files = await collectFilesForUpload(input.localDir);
-                await uploadFiles({
-                    repo: { type: input.repoType, name: input.repoId},
-                    files,
-                    commitTitle: input.commitMessage,
-                    accessToken
-                });
-
-                return {
-                    content: [
-                        {type: "text" as const, text: repoUrl}
-                    ]
+                let repoUrl: string;
+                try {
+                    ({ repoUrl } = await createRepo({ repo, visibility: input.visibility, accessToken }));
+                } catch (e: any) {
+                if (e?.statusCode === 409 || e?.message?.includes("already exists")) {
+                    repoUrl = `https://huggingface.co/${input.repoId}`;
+                    } else throw e;
                 }
 
+                const files = await collectFilesForUpload(input.localDir);
 
+                const jobId = crypto.randomUUID();
+                const job: UploadJob = {
+                    jobId,
+                    jobStatus: "Pending",
+                    repoId: input.repoId,
+                    repoUrl,
+                    currentFile: "",
+                    startedAt: new Date(),
+                };
+                uploadJobs.set(jobId, job);
+                await persistJobs().catch(() => {})
+
+                runUpload(job, files, repo, input.commitMessage, accessToken).catch(() => {});
+
+                return {
+                    content: [{
+                        type: "text" as const,
+                        text: JSON.stringify({ jobId, repoUrl, message: "Upload started. Use get_upload_status to track progress." }, null, 2),
+                    }],
+                };
             } catch (error) {
-                logger.error({error}, `failed to upload files at ${input.repoId}`);
+                logger.error({ error }, `Failed to start upload for ${input.repoId}`);
                 return {
                     isError: true,
-                    content: [
-                        {
-                            type: "text" as const,
-                            text: `Failed to upload model files for ${input.repoId}: ${error instanceof Error ? error.message : String(error)}`,
-                        },
-                    ],
+                    content: [{ type: "text" as const, text: `Failed to start upload: ${error instanceof Error ? error.message : String(error)}` }],
                 };
             }
         }
-    )
+    );
 }
