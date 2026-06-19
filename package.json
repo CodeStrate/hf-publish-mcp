@@ -4,10 +4,10 @@
   "description": "MCP server for the fine-tuner's publish workflow on Hugging Face Hub — upload models, inspect repos, and maintain model cards.",
   "type": "module",
   "bin": {
-    "hf-publish": "./dist/index.js"
+    "hf-publish": "dist/index.js"
   },
   "scripts": {
-    "build": "bun build --target=bun --outfile=dist/index.js src/index.ts",
+    "build": "bun build --target=bun --outfile=dist/index.js src/index.ts && chmod +x dist/index.js",
     "prepublishOnly": "bun run build",
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts"
@@ -27,7 +27,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CodeStrate/hf-publish-mcp"
+    "url": "git+https://github.com/CodeStrate/hf-publish-mcp.git"
   },
   "author": "CodeStrate",
   "devDependencies": {
