@@ -1,26 +1,26 @@
-# hf-publish
+<div align="center">
+  <img width="1280" height="720" alt="hf-publish banner" src="https://github.com/user-attachments/assets/17d41de5-1343-4abf-96f9-68bfc95875af" />
+  <h1>HF Publish</h1>
+  <p>A local stdio MCP server for the fine-tuner's publish workflow on Hugging Face Hub.</p>
+</div>
 
-A local stdio MCP server for the fine-tuner's **publish workflow** on Hugging Face Hub. The official HF MCP covers search and discovery — this fills the other side: inspect repos, upload checkpoints and adapters, and maintain model cards.
+---
+
+The [official HF MCP](https://huggingface.co/docs/hub/en/agents-mcp) covers search and discovery. This fills the other side — inspect repos, upload checkpoints and adapters, and maintain model cards without leaving your agent.
+
+[Tools](#tools) · [Getting Started](#getting-started) · [Auth](#auth) · [Client Config](#client-config) · [How It Works](#how-it-works) · [Stack](#stack)
 
 ## Tools
 
 | Tool | Description |
 |---|---|
 | `list_model_repos` | List your HF models with likes, downloads, and last modified date |
-| `inspect_repo` | Check whether expected model files exist (config, tokenizer, weights) and return the model card. Use before uploading or editing. |
-| `upload_model` | Upload a model or adapter directory to HF. Returns a `jobId` immediately — non-blocking. |
-| `get_model_upload_status` | Poll a background upload by `jobId`. Shows current phase, current file, and elapsed time. |
-| `update_model_card` | Patch a model card README. Supports surgical section edits, frontmatter merges, and full rewrites — without clobbering untouched content. |
+| `inspect_repo` | Verify expected files exist (config, tokenizer, weights) and return the model card |
+| `upload_model` | Upload a model or adapter directory to HF. Non-blocking — returns a `jobId` immediately |
+| `get_model_upload_status` | Poll a background upload by `jobId`. Shows phase, current file, and elapsed time |
+| `update_model_card` | Patch a model card README via surgical section edits, frontmatter merges, or full rewrite |
 
-## Auth
-
-On startup the server checks for `HF_TOKEN` in your environment, then falls back to the HF CLI token at `~/.cache/huggingface/token`. If neither is found it launches `hf auth login` interactively — **this only works when running the server directly in a terminal**, not when launched by an MCP client over stdio (no TTY).
-
-Recommended flow: run `bun run src/index.ts` once in a terminal to authenticate, then use it via your MCP client. Alternatively set `HF_TOKEN` directly in your client config.
-
-The token needs **write** scope.
-
-## Setup
+## Getting Started
 
 **Requires [Bun](https://bun.sh)**
 
@@ -30,7 +30,19 @@ cd hf-publish-mcp
 bun install
 ```
 
-## MCP Client Config
+## Auth
+
+On startup the server resolves your HF token in order:
+
+1. `HF_TOKEN` environment variable
+2. HF CLI token at `~/.cache/huggingface/token`
+3. Interactive `hf auth login` — **only works when running in a terminal**, not via an MCP client
+
+**Recommended:** run `bun run src/index.ts` once in a terminal to authenticate via the CLI, then use it from your MCP client. Alternatively, set `HF_TOKEN` directly in your client config.
+
+The token requires **write** scope.
+
+## Client Config
 
 ### Claude Desktop / Claude Code
 
@@ -45,7 +57,9 @@ bun install
 }
 ```
 
-### VS Code (`.vscode/mcp.json`) — token via UI prompt
+### VS Code (`.vscode/mcp.json`)
+
+Prompts for the token via the VS Code secrets UI — nothing stored in plaintext.
 
 ```json
 {
@@ -82,21 +96,23 @@ bun install
 }
 ```
 
-## Upload flow
+## How It Works
 
-`upload_model` is non-blocking — it creates the repo if absent, starts the upload in the background, and returns a `jobId` immediately. Poll with `get_model_upload_status`.
+### Upload
 
-Upload jobs are persisted to `~/.hf_mcp/upload-jobs.json` so status survives server restarts. Interrupted jobs (server killed mid-upload) are marked as `Error` on next start.
+`upload_model` is non-blocking. It creates the repo if absent, starts the upload in the background, and returns a `jobId` immediately. Poll with `get_model_upload_status`.
 
-Progress events are phase-level (`preuploading → uploadingLargeFiles → committing`) and file-level, powered by `uploadFilesWithProgress` from `@huggingface/hub`.
+Jobs persist to `~/.hf_mcp/upload-jobs.json` — status survives server restarts. Jobs interrupted mid-upload are marked `Error` on next start rather than left in a stale `Running` state.
 
-## Model card editing
+Progress is phase-level (`preuploading → uploadingLargeFiles → committing`) and file-level, powered by `uploadFilesWithProgress` from `@huggingface/hub`.
 
-`update_model_card` has two modes:
+### Model Card Editing
 
-**Surgical (default):** Pass `frontmatter` and/or `sections`. Only the specified parts change — everything else is untouched byte-for-byte. Uses remark AST as a position map for section bounds, then splices the raw string directly. No formatting drift.
+`update_model_card` operates in two modes:
 
-**Full rewrite:** Pass `content` with the complete README body. Still applies `frontmatter`/`removeFields` on top if provided.
+**Surgical** — pass `frontmatter` and/or `sections`. Only the specified parts change; everything else is returned byte-for-byte. The remark AST is used purely as a position map to locate section boundaries, then the raw string is spliced directly. No formatting drift.
+
+**Full rewrite** — pass `content` with the complete README body. `frontmatter` and `removeFields` are still applied on top if provided.
 
 ## Stack
 
@@ -105,4 +121,4 @@ Progress events are phase-level (`preuploading → uploadingLargeFiles → commi
 - [`@huggingface/hub`](https://github.com/huggingface/huggingface.js/tree/main/packages/hub) — repo ops, uploads, file download
 - `gray-matter` — YAML frontmatter round-tripping
 - `remark` + `remark-gfm` — markdown AST for section position mapping
-- `pino` — structured logging to stderr (stdout is reserved for MCP JSON-RPC)
+- `pino` — structured logging to stderr (stdout reserved for MCP JSON-RPC)
