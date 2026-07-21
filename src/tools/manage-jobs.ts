@@ -1,31 +1,31 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { uploadJobs } from "../types/upload-job";
+import { jobsMap, persistJobs, listArchiveFiles, readArchiveJobs, rewriteArchiveFile, deleteArchiveFile } from "../utils/job-store";
 import { logger } from "../logger";
-import { persistJobs, listArchiveFiles, readArchiveJobs, rewriteArchiveFile, deleteArchiveFile } from "../utils/upload-job-store";
 
-export function registerManageUploadJobs(server: McpServer){
+export function registerManageJobs(server: McpServer){
     server.registerTool(
-        "manage_upload_jobs",
+        "manage_jobs",
         {
             description: 
-            `Utility to list, delete or clean up upload jobs across active file or dated archives.
+            `Utility to list, delete or clean up the MCP jobs across active file or dated archives.
             Use list to browse, delete for a single job, delete-after/delete-before for dated batch deletion
             and clear to clean up the job persist directory.`,
             inputSchema:
-            {
+            {   
+                jobType: z.enum(["upload", "quant"]).optional().describe("Filter Jobs by Job Type"),
                 action: z.enum(["list", "delete", "delete-after", "delete-before", "clear"]).describe("Action or operation to perform"),
-                status: z.enum(["Running", "Pending", "Error", "Done"]).optional().describe("Filter Jobs by Status"),
+                status: z.enum(["Running", "Pending", "Retrying", "Error", "Done"]).optional().describe("Filter Jobs by Status"),
                 jobId: z.string().describe("Job ID to delete - single operation").optional(),
                 date: z.string().optional().describe("ISO Date (YYYY-MM-DD) for cutoff - batch delete after/before")
             },
         },
-        async ({ action, status, jobId, date }) => {
+        async ({ action, status, jobId, date, jobType }) => {
             try {
                 switch (action) {
                     case "list": {
-                        const activeJobs = [...uploadJobs.values()]
-                            .filter(j => !status || j.jobStatus === status)
+                        const activeJobs = [...jobsMap.values()]
+                            .filter(j => (!jobType || j.jobType === jobType) && (!status || j.jobStatus === status))
                             .map(j => ({
                                 jobId: j.jobId,
                                 status: j.jobStatus,
@@ -40,7 +40,7 @@ export function registerManageUploadJobs(server: McpServer){
                         const archiveJobs = [];
                         for (const file of archives) {
                             for (const [, job] of await readArchiveJobs(file)) {
-                                if (!status || job.jobStatus === status) {
+                                if ((!jobType || job.jobType === jobType) && (!status || job.jobStatus === status)) {
                                     archiveJobs.push({
                                         jobId: job.jobId,
                                         status: job.jobStatus,
@@ -68,9 +68,9 @@ export function registerManageUploadJobs(server: McpServer){
                             content: [{ type: "text" as const, text: "jobId is required for delete action." }],
                         };
 
-                        if (uploadJobs.has(jobId)) {
-                            uploadJobs.delete(jobId);
-                            await persistJobs();
+                        if (jobsMap.has(jobId)) {
+                            jobsMap.delete(jobId);
+                            persistJobs();
                             return { content: [{ type: "text" as const, text: `Deleted job ${jobId} from active file.` }] };
                         }
 
@@ -107,23 +107,25 @@ export function registerManageUploadJobs(server: McpServer){
                         const before = action === "delete-before";
                         let activeDeleted = 0;
 
-                        for (const [id, job] of uploadJobs.entries()) {
+                        for (const [id, job] of jobsMap.entries()) {
                             if (!job.completedAt) continue;
-                            if (status && job.jobStatus !== status) continue; // filters by status, allowing "delete all Error jobs before/after"
+                            if (jobType && job.jobType !== jobType) continue;
+                            if (status && job.jobStatus !== status) continue;
                             if (before ? job.completedAt < cutoff : job.completedAt > cutoff) {
-                                uploadJobs.delete(id);
+                                jobsMap.delete(id);
                                 activeDeleted++;
                             }
                         }
-                        if (activeDeleted > 0) await persistJobs();
+                        if (activeDeleted > 0) persistJobs();
 
                         let archivesAffected = 0;
                         for (const file of await listArchiveFiles()) {
                             const entries = await readArchiveJobs(file);
                             const survivingJobs = entries.filter(([, job]) => {
-                                if (!job.completedAt) return true; // its ongoing/incomplete
-                                if (status && job.jobStatus !== status) return true;  // same as active
-                                return before ? !(job.completedAt < cutoff) : !(job.completedAt > cutoff); // inverse of active
+                                if (!job.completedAt) return true;
+                                if (jobType && job.jobType !== jobType) return true;
+                                if (status && job.jobStatus !== status) return true;
+                                return before ? !(job.completedAt < cutoff) : !(job.completedAt > cutoff);
                             })
 
                             if (survivingJobs.length === 0){ // archive doesn't have a incomplete job 
@@ -149,17 +151,28 @@ export function registerManageUploadJobs(server: McpServer){
 
                     case "clear": {
                         const archives = await listArchiveFiles();
-                        for (const file of archives) await deleteArchiveFile(file);
+                        let cleared = 0;
+                        for (const file of archives) {
+                            if (!jobType) {
+                                await deleteArchiveFile(file);
+                                cleared++;
+                                continue;
+                            }
+                            const entries = await readArchiveJobs(file);
+                            const survivors = entries.filter(([, job]) => job.jobType !== jobType);
+                            if (survivors.length === 0) { await deleteArchiveFile(file); cleared++; }
+                            else if (survivors.length < entries.length) await rewriteArchiveFile(file, survivors);
+                        }
                         return {
                             content: [{
                                 type: "text" as const,
-                                text: JSON.stringify({ message: `Cleared ${archives.length} archive file(s).`, deleted: archives }, null, 2),
+                                text: JSON.stringify({ message: `Cleared ${cleared} archive file(s)${jobType ? ` of type '${jobType}'` : ""}.` }, null, 2),
                             }],
                         };
                     }
                 }
             } catch (error) {
-                logger.error({ error }, "manage_upload_jobs failed");
+                logger.error({ error }, "manage_jobs failed");
                 return {
                     isError: true,
                     content: [{ type: "text" as const, text: `Failed: ${error instanceof Error ? error.message : String(error)}` }],
