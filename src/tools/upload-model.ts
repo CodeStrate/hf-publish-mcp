@@ -3,10 +3,10 @@ import { z } from "zod";
 import { logger } from "../logger";
 import { getHFToken } from "../client";
 import { createRepo, uploadFilesWithProgress } from "@huggingface/hub";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { uploadJobs, type UploadJob } from "../types/upload-job";
-import { persistJobs } from "../utils/upload-job-store";
+import { type UploadJob } from "../types/job-schemas";
+import { jobsMap, persistJobs } from "../utils/job-store";
 
 
 async function collectFilesForUpload(directory:string): Promise<{path: string; content: Blob}[]> {
@@ -103,13 +103,14 @@ export function registerUploadModel(server: McpServer) {
                 const jobId = crypto.randomUUID();
                 const job: UploadJob = {
                     jobId,
+                    jobType: "upload",
                     jobStatus: "Pending",
                     repoId: input.repoId,
                     repoUrl,
                     currentFile: "",
                     startedAt: new Date(),
                 };
-                uploadJobs.set(jobId, job);
+                jobsMap.set(jobId, job);
                 await persistJobs()
 
                 runUpload(job, files, repo, input.commitMessage, accessToken).catch(() => {});

@@ -4,19 +4,7 @@ import { downloadFile, fileExists, listFiles } from "@huggingface/hub";
 import { getHFToken } from "../client";
 import { logger } from "../logger";
 import matter from "gray-matter";
-
-const REQUIRED_FILES = [
-  "config.json",
-  "tokenizer_config.json",
-  "tokenizer.json",
-] as const;
-
-const MODEL_WEIGHTS = [
-  ".safetensors", // includes mlx too
-  ".gguf",
-  ".pt", // pytorch
-  ".bin" //old format compatibility
-]
+import { REQUIRED_FILES, MODEL_WEIGHTS } from "../utils/constants";
 
 export function registerInspectRepo(server: McpServer) {
   server.registerTool(
