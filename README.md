@@ -42,10 +42,11 @@ The overlap is `inspect_repo` vs the official "Hub Repository Details" tool - bo
 |---|---|
 | `list_model_repos` | List your HF models with likes, downloads, and last modified date |
 | `inspect_repo` | Verify expected files exist (config, tokenizer, weights) and return the model card |
-| `upload_model` | Upload a model or adapter directory to HF. Non-blocking - returns a `jobId` immediately |
-| `get_model_upload_status` | Poll a background upload by `jobId`. Shows phase, current file, and elapsed time |
+| `upload_model` | Upload a model or adapter directory to HF. Non-blocking — returns a `jobId` immediately |
+| `get_job_status` | Poll any background job (upload or quant) by `jobId`. Shows phase, current file, and elapsed time |
 | `update_model_card` | Patch a model card README via surgical section edits, frontmatter merges, or full rewrite (dry run support: review changes before agent commits) |
-| `manage_upload_jobs` | List, delete, or batch-clean upload job history across active and dated archive files |
+| `manage_jobs` | List, delete, or batch-clean job history (uploads and quant jobs) across active and archived files |
+| `trigger_gguf_quant` | Trigger GGUF quantization via the ggml-org/gguf-my-repo Space. Non-blocking — returns a `jobId`. Requires `HF_GGUF_MY_SPACE_COOKIE` (see [Auth](#auth)) |
 
 ## Getting Started
 
@@ -102,6 +103,20 @@ If neither is present the server exits immediately with an error message rather 
 
 The token requires **write** scope.
 
+### GGUF Quantization Auth
+
+`trigger_gguf_quant` uses the public `ggml-org/gguf-my-repo` Space, which requires you to be logged in. It cannot be satisfied with an HF token alone — the Space gates its API behind a browser session.
+
+**One-time setup (valid ~2 weeks):**
+
+1. Open `https://ggml-org-gguf-my-repo.hf.space` directly (not the embedded iframe on huggingface.co — it blocks cross-origin auth)
+2. Click **Sign in with Hugging Face** and authorize
+3. Open DevTools → Application → Cookies → `ggml-org-gguf-my-repo.hf.space`
+4. Copy the `session` cookie value
+5. Add it to your MCP client env config as `HF_GGUF_MY_SPACE_COOKIE`
+
+The cookie expires after ~2 weeks or if the Space restarts. When `trigger_gguf_quant` returns an auth error, refresh it with the same steps.
+
 ## Client Config
 
 ### Claude Desktop
@@ -151,7 +166,7 @@ claude mcp add hf-publish -- bunx hf-publish-mcp
 }
 ```
 
-### Generic stdio client (Cursor, PiCode, OpenCode, etc.)
+### Generic stdio client (Cursor, OpenCode, etc.)
 
 ```json
 {
@@ -163,15 +178,42 @@ claude mcp add hf-publish -- bunx hf-publish-mcp
 }
 ```
 
+**If you use `trigger_gguf_quant`:** the `HF_GGUF_MY_SPACE_COOKIE` value is large (~3 KB) — too unwieldy to paste inline. Use an env file instead:
+
+```bash
+# ~/.hf_mcp.env  (gitignored, not committed)
+HF_TOKEN=hf_...
+HF_GGUF_MY_SPACE_COOKIE=<paste session cookie here>
+```
+
+Then pass it via `--env-file`:
+
+```json
+{
+  "command": "bunx",
+  "args": ["--env-file=/Users/you/.hf_mcp.env", "hf-publish-mcp"]
+}
+```
+
 ## How It Works
 
 ### Upload
 
-`upload_model` is non-blocking. It creates the repo if absent, starts the upload in the background, and returns a `jobId` immediately. Poll with `get_model_upload_status`.
+`upload_model` is non-blocking. It creates the repo if absent, starts the upload in the background, and returns a `jobId` immediately. Poll with `get_job_status`.
 
-Jobs persist to `~/.hf_mcp/upload-jobs.json` - status survives server restarts. Jobs interrupted mid-upload are marked `Error` on next start rather than left in a stale `Running` state. Completed jobs are archived to dated files once the active file exceeds the limit.
+Jobs persist to `~/.hf_mcp/hf-mcp-jobs.json` — status survives server restarts. Jobs interrupted mid-upload are marked `Error` on next start rather than left in a stale `Running` state. Completed jobs are archived to dated files once the active file exceeds the limit.
 
 Progress is phase-level (`preuploading → uploadingLargeFiles → committing`) and file-level, powered by `uploadFilesWithProgress` from `@huggingface/hub`.
+
+### GGUF Quantization
+
+`trigger_gguf_quant` is non-blocking. It submits the model to the `ggml-org/gguf-my-repo` Gradio Space via `@gradio/client` and returns a `jobId` immediately. Poll with `get_job_status`.
+
+The Space runs `llama.cpp`'s `convert_hf_to_gguf.py` and quantizes the result. The output repo is created automatically as `{owner}/{model-name}-GGUF` — the name is set by the Space and cannot be customized. Conversion of a 1B model takes ~2 minutes; larger models proportionally longer.
+
+Auth is via a browser session cookie (`HF_GGUF_MY_SPACE_COOKIE`). The Space gates its API behind HF login — an HF token alone is not sufficient. See [GGUF Quantization Auth](#gguf-quantization-auth) for setup.
+
+Error output from the Space (e.g. tokenizer compatibility issues) is stripped from HTML and surfaced directly in the job's `error` field, visible via `get_job_status`.
 
 ### Model Card Editing
 
@@ -188,6 +230,7 @@ Progress is phase-level (`preuploading → uploadingLargeFiles → committing`) 
 - TypeScript + Bun
 - [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) - MCP SDK + stdio transport
 - [`@huggingface/hub`](https://github.com/huggingface/huggingface.js/tree/main/packages/hub) - repo ops, uploads, file download
+- [`@gradio/client`](https://github.com/gradio-app/gradio/tree/main/client/js) - Gradio Space API client for GGUF quantization
 - `gray-matter` - YAML frontmatter round-tripping
 - `remark` + `remark-gfm` - markdown AST for section position mapping
 - `pino` - structured logging to stderr (stdout reserved for MCP JSON-RPC)
@@ -200,6 +243,35 @@ PRs welcome. A few guidelines:
 - **One concern per PR** - keep diffs reviewable
 - Open an issue first for anything beyond a bug fix or small improvement
 - `update_model_card` is the most sensitive tool - changes there should be tested against a real card; `dryRun: true` exists for this
-- `trigger_gguf_quant` is experimental and currently deferred - the Gradio Space requires browser OAuth that can't be satisfied headlessly; skip unless you have a concrete solution
+- `trigger_gguf_quant` is experimental — the Space API is undocumented and may change. Auth requires a browser session cookie (`HF_GGUF_MY_SPACE_COOKIE`); see [GGUF Quantization Auth](#gguf-quantization-auth) for setup. Error output from the Space is surfaced directly in the job status
 
 Bug reports: open an issue with the tool name, inputs (redact your token), and the error message or unexpected output.
+
+## Changelog
+
+### v1.1.0
+- **Add** `trigger_gguf_quant` — trigger GGUF conversion via the ggml-org/gguf-my-repo Space. Non-blocking, returns a `jobId`. Auth via browser session cookie (`HF_GGUF_MY_SPACE_COOKIE`)
+- **Add** `get_job_status` — unified job polling for both upload and quant jobs (replaces `get_model_upload_status` and `get_quant_job_status`)
+- **Add** `manage_jobs` — unified job management for uploads and quant jobs (replaces `manage_upload_jobs`)
+- **Refactor** Unified job store (`job-store.ts`) replacing separate upload and quant stores
+
+### v1.0.3
+- **Fix** `upload_model`: reordered directory stat check to prevent empty-repo bug on first upload; filtered hidden directories from upload set; switched `readFile` to Bun's lazy file stream
+- **Fix** `inspect_repo` + `update_model_card`: frontmatter merge bug where user-supplied tags overwrote existing fields instead of merging with them
+- **Fix** upload job management: added status filter support; improved archive file handling
+- **Fix** auth: removed interactive login fallback, server now exits cleanly with a clear error when `HF_TOKEN` is missing
+
+### v1.0.2
+- npm publish workflow and CI setup
+- No functional changes
+
+### v1.0.1
+- **Add** `update_model_card` — surgical section edits, frontmatter merges, and full rewrite mode. `dryRun` flag lets you review a diff before the agent commits changes
+- **Add** `inspect_repo` now returns the full model card content alongside file verification
+- **Add** `get_model_upload_status` — poll a background upload by `jobId`; shows phase, current file, and elapsed time
+- **Add** `manage_upload_jobs` — list, delete, or batch-clean upload job history across active and dated archive files
+- **Add** Upload jobs persist to `~/.hf_mcp/upload-jobs.json`; jobs interrupted mid-run are marked `Error` on next start rather than left stale
+- **Add** Auth falls back to HF CLI token at `~/.cache/huggingface/token` if `HF_TOKEN` env var is not set
+
+### v1.0.0
+- Initial release: `list_model_repos`, `upload_model`, `inspect_repo`

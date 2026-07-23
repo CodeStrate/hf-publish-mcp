@@ -50,7 +50,9 @@ async function appendToArchive(entries: [string, Job][]): Promise<void> {
         }
     } catch {}
     const merged = new Map([...existing, ...entries]);
-    await writeFile(archiveFile, JSON.stringify([...merged.entries()], null, 2));
+    const tempFile = archiveFile + ".tmp"
+    await writeFile(tempFile, JSON.stringify([...merged.entries()], null, 2));
+    await rename(tempFile, archiveFile)
 }
 
 export function persistJobs(): void {
@@ -106,7 +108,9 @@ export async function readArchiveJobs(filename: string): Promise<[string, Job][]
 }
 
 export async function rewriteArchiveFile(filename: string, entries: [string, Job][]): Promise<void> {
-    await writeFile(join(HF_MCP_DIR, filename), JSON.stringify(entries, null, 2));
+    const tempFile = join(HF_MCP_DIR, filename + ".tmp")
+    await writeFile(tempFile, JSON.stringify(entries, null, 2));
+    await rename(tempFile, join(HF_MCP_DIR, filename))
 }
 
 export async function deleteArchiveFile(filename: string): Promise<void> {
