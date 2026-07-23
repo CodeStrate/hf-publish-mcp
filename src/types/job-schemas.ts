@@ -23,8 +23,6 @@ export const UploadJobSchema = BaseJobSchema.extend({
 
 export const QuantJobSchema = BaseJobSchema.extend({
     jobType: z.literal("quant"),
-    sessionHash: z.string(),
-    eventId: z.string(),
     isPrivate: z.boolean(),
     quantType: z.enum(QuantTypes),
     outputRepoUrl: z.string().optional(),

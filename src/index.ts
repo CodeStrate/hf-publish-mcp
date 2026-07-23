@@ -11,11 +11,10 @@ import { loadJobs } from "./utils/job-store";
 import { ensureAuthenticated } from "./client";
 import { registerManageJobs } from "./tools/manage-jobs";
 import { registerTriggerGGUFQuant } from "./tools/trigger-gguf-quant";
-import { registerGGUFSpaceAuthFlow } from "./tools/gguf-space-auth-flow";
 
 const server = new McpServer({
   name: "hf-publish",
-  version: "1.0.3",
+  version: "1.0.4",
 });
 
 registerInspectRepo(server);
@@ -25,7 +24,6 @@ registerGetJobStatus(server);
 registerUpdateModelCard(server);
 registerManageJobs(server);
 registerTriggerGGUFQuant(server);
-registerGGUFSpaceAuthFlow(server);
 
 async function main() {
   await ensureAuthenticated();

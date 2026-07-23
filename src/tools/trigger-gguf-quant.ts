@@ -1,66 +1,79 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { QUANT_TYPES, quantJobs, type QuantJob } from "../types/quant-job";
-import { persistQuantJobs } from "../utils/quant-job-store";
 import { getHFToken } from "../client";
 import { logger } from "../logger";
-import { getSpaceOAuthToken } from "../utils/gguf-space-oauth";
+import { jobsMap, persistJobs } from "../utils/job-store";
+import { QuantJobSchema, type QuantJob } from "../types/job-schemas";
+import { Client } from "@gradio/client";
 
-const GGML_BASE_URL = "https://ggml-org-gguf-my-repo.hf.space/gradio_api"
 
-async function startSSEStream(sessionHash: string, jobId: string, accessToken: string, cookie: string) {
-    try {
-        const response = await fetch(`${GGML_BASE_URL}/queue/data?session_hash=${sessionHash}`, {
-            headers: { Authorization: `Bearer ${accessToken}`, Cookie: `access-token=${cookie}` }
-        });
-
-        if (!response.ok) throw new Error(`SSE connect failed: ${response.status}`);
-
-        for await (const chunk of response.body!) {
-            const text = new TextDecoder().decode(chunk);
-
-            // text lines are "data: {...json...}\n\n"
-
-            for (const line of text.split("\n")) {
-            if (!line.startsWith("data: ")) continue;
-            let event: any;
-            try{
-                event = JSON.parse(line.slice(6));
-            }catch {continue;}
-
-            const job = quantJobs.get(jobId);
-            if (!job) return;
-
-            if (event.msg === "process_starts"){
-                job.jobStatus = "Running";
-            }else if (event.msg === "process_completed"){
-                job.completedAt = new Date();
-                if (event.success){
-                    job.jobStatus = "Completed";
-                    const markdown:string = event.output?.data?.[0] ?? "";
-                    const urlMatch = markdown.match(/https:\/\/huggingface\.co\/[\w\-./]+/);
-                    if (urlMatch) job.outputRepoUrl = urlMatch[0];
-                } else {
-                    job.jobStatus = "Error";
-                    job.error = event.output?.error ?? "Unknown error from HF Space.";
+async function runQuantStream(client:Client, params: any[], jobId: string) {
+    logger.info({ jobId }, "runQuantStream started");
+    const job = jobsMap.get(jobId)
+    if (!job || job.jobType !== "quant") return;
+    
+    try{
+        const submission = client.submit(3, params);
+        logger.info({ jobId }, "submitted, awaiting events");
+        for await (const event of submission) {
+        logger.info({ type: event.type, stage: (event as any).stage, success: (event as any).success }, "quant event");
+        if (event.type === "status"){
+            if (event.stage === "generating"){
+                job.jobStatus = "Running"
+            } else if (event.stage === "complete") {
+                if (job.jobStatus !== "Done") {
+                    job.completedAt = new Date();
+                    job.jobStatus = event.success === false ? "Error" : "Done";
+                    if (!event.success) job.error = event.code ?? "Unknown error from HF Space.";
+                    persistJobs();
                 }
-                await persistQuantJobs();
+                return;
+            } else if (event.stage === "error"){
+                job.completedAt = new Date();
+                job.jobStatus = "Error"
+                job.error = event.code ?? "Unknown Error from HF Space"
+                persistJobs();
                 return;
             }
-    
-
+        } else if (event.type === "data"){
+            job.completedAt = new Date();
+            const raw = typeof event.data[0] === "string" ? event.data[0] : "";
+            if (raw.includes("❌ ERROR")) {
+                const preMatch = raw.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
+                const errorText = preMatch
+                    ? preMatch[1]!
+                        .replace(/<br\/>/g, "\n")
+                        .replace(/&gt;/g, ">").replace(/&lt;/g, "<")
+                        .replace(/&quot;/g, '"').replace(/&amp;/g, "&")
+                        .trim()
+                    : "Conversion failed (see Space logs)";
+                job.jobStatus = "Error";
+                job.error = errorText;
+                logger.error({ jobId, error: errorText.slice(0, 200) }, "quant conversion error");
+            } else {
+                const urlMatch = raw.match(/https:\/\/huggingface\.co\/[\w\-./]*[a-zA-Z0-9]/);
+                job.jobStatus = "Done";
+                if (urlMatch) job.outputRepoUrl = urlMatch[0];
+                logger.info({ jobId, outputRepoUrl: job.outputRepoUrl }, "quant done");
             }
+            persistJobs();
+            return;
         }
-    }catch (error){
-        const job = quantJobs.get(jobId);
-        if (job) {
+        }
+    }catch(error) {
+        const job = jobsMap.get(jobId);
+        if (job && job.jobType === "quant"){
+            job.completedAt = new Date();
             job.jobStatus = "Error";
-            job.error = String(error);
-            await persistQuantJobs();
+            job.error = String(error)
+            persistJobs();
         }
-        logger.error({error, jobId}, "SSE stream failed.")
+        logger.error({error, jobId}, "Quant stream failed.")
+    } finally {
+        client.close();
     }
-}   
+    
+}
 
 export function registerTriggerGGUFQuant(server: McpServer){
     server.registerTool(
@@ -68,7 +81,7 @@ export function registerTriggerGGUFQuant(server: McpServer){
             description: "Trigger GGUF quantization of a HuggingFace model via the ggml-org/gguf-my-repo Space. Converts a safetensors model to GGUF format. The output repo is automatically named {repo-name}-GGUF under the same owner — the name cannot be customized. Experimental — depends on Space availability.",
             inputSchema: {
                 repoId: z.string().describe("Owner/repo-name of the model, e.g. google/gemma-4-12B. Must be in full merged safetensors format - raw adapters not supported."),
-                quantType: z.enum(QUANT_TYPES).default("Q4_K_M").describe("GGUF quantization type. Q4_K_M (default) for best model quality/size tradeoff."),
+                quantType: QuantJobSchema.shape.quantType.default("Q4_K_M").describe("GGUF quantization type. Q4_K_M (default) for best model quality/size tradeoff."),
                 isPrivate: z.boolean().default(false).describe("Create the new quantized repo as private."),
                 
             }
@@ -76,56 +89,41 @@ export function registerTriggerGGUFQuant(server: McpServer){
         async ({ repoId, quantType, isPrivate }) => {
             logger.info({ repoId, quantType }, "triggering GGUF quant");
             try {
-                const accessToken = getHFToken();
-                const OAuthCookie = await getSpaceOAuthToken();
-                const sessionHash = crypto.randomUUID();
-
-                const response = await fetch(`${GGML_BASE_URL}/queue/join`, {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${accessToken}`,
-                        "Content-Type": "application/json",
-                        "Cookie": `access-token=${OAuthCookie}`,
-                    },
-                    //explaining body: HF Space has 13 endpoints from 0-12, we need 4th i.e. 3
-                    // data is an array of exactly these values: [repoId, quantType, useImatrix, imatrixQuantType, privateRepo, trainingFile, splitModel, maxTensorsPerFile, maxFileSize]
-                    // all values must be included even if we don't use them that's why we use false, null, "", etc.
-                    body: JSON.stringify({
-                        "fn_index": 3,
-                        "data" : [repoId, quantType, false, "IQ4_NL", isPrivate, null, false, 1, ""], //splitModel is false, doesn't matter what number we put in maxTensors..
-                        "session_hash" : sessionHash,
-                    })
-                })
-
-                if (!response.ok) {
-                    const text = await response.text();
-                    throw new Error(`Space returned ${response.status}: ${text}`);
+                const sessionCookie = process.env.HF_GGUF_MY_SPACE_COOKIE;
+                if (!sessionCookie) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text" as const, text: "HF_GGUF_MY_SPACE_COOKIE is not set. Log in at https://ggml-org-gguf-my-repo.hf.space, then copy the 'session' cookie value from DevTools → Application → Cookies and add it to your MCP env config." }],
+                    };
                 }
-
-                const { event_id: eventId } = z.object({ event_id: z.string() }).parse(await response.json());
+                const accessToken = getHFToken();
+                const client = await Client.connect("ggml-org/gguf-my-repo", {
+                    token: accessToken as `hf_${string}`,
+                    cookies: `session=${sessionCookie}`,
+                    status_callback: (status) => logger.info({status}, "space status")
+                });
 
                 const jobId = crypto.randomUUID()
 
                 const job: QuantJob = {
                     jobId,
-                    sessionHash,
-                    eventId,
-                    jobStatus: "Queued",
+                    jobType: "quant",
+                    jobStatus: "Pending",
                     repoId,
                     quantType,
                     isPrivate,
                     startedAt: new Date(),
                 }
 
-                quantJobs.set(jobId, job);
-                await persistQuantJobs();
+                jobsMap.set(jobId, job);
 
-                startSSEStream(sessionHash, jobId, accessToken, OAuthCookie);
+                persistJobs();
 
+                runQuantStream(client, [repoId, quantType, false, "IQ4_NL", isPrivate, null, false, 1, ""], jobId)
                 return {
                     content: [{
                         type: "text" as const,
-                        text: JSON.stringify({ jobId, message: "Quant Job started. Use get_quant_job_status to track progress." }, null, 2),
+                        text: JSON.stringify({ jobId, message: "Quant Job started. Use get_job_status to track progress." }, null, 2),
                     }],
                 };
 
