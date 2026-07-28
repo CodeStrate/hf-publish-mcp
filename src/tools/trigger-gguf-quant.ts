@@ -7,12 +7,15 @@ import { QuantJobSchema, type QuantJob } from "../types/job-schemas";
 import { Client } from "@gradio/client";
 
 
-async function runQuantStream(client:Client, params: any[], jobId: string) {
+type QuantParams = [string, string, boolean, string, boolean, null, boolean, number, string];
+
+async function runQuantStream(client: Client, params: QuantParams, jobId: string) {
     logger.info({ jobId }, "runQuantStream started");
     const job = jobsMap.get(jobId)
-    if (!job || job.jobType !== "quant") return;
-    
+    if (!job || job.jobType !== "quant") { client.close(); return; }
+
     try{
+        // fn_index 3: convert endpoint — undocumented, fragile if ggml-org adds/removes endpoints
         const submission = client.submit(3, params);
         logger.info({ jobId }, "submitted, awaiting events");
         for await (const event of submission) {
@@ -38,7 +41,13 @@ async function runQuantStream(client:Client, params: any[], jobId: string) {
         } else if (event.type === "data"){
             job.completedAt = new Date();
             const raw = typeof event.data[0] === "string" ? event.data[0] : "";
-            if (raw.includes("❌ ERROR")) {
+            const urlMatch = raw.match(/https:\/\/huggingface\.co\/[\w\-./]*[a-zA-Z0-9]/);
+            if (urlMatch) {
+                job.jobStatus = "Done";
+                job.outputRepoUrl = urlMatch[0];
+                logger.info({ jobId, outputRepoUrl: job.outputRepoUrl }, "quant done");
+            } else {
+                // No HF URL in output — treat as error regardless of emoji/format changes
                 const preMatch = raw.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
                 const errorText = preMatch
                     ? preMatch[1]!
@@ -46,22 +55,16 @@ async function runQuantStream(client:Client, params: any[], jobId: string) {
                         .replace(/&gt;/g, ">").replace(/&lt;/g, "<")
                         .replace(/&quot;/g, '"').replace(/&amp;/g, "&")
                         .trim()
-                    : "Conversion failed (see Space logs)";
+                    : raw.length > 0 ? "Conversion failed (see Space logs)" : "No output from Space";
                 job.jobStatus = "Error";
                 job.error = errorText;
                 logger.error({ jobId, error: errorText.slice(0, 200) }, "quant conversion error");
-            } else {
-                const urlMatch = raw.match(/https:\/\/huggingface\.co\/[\w\-./]*[a-zA-Z0-9]/);
-                job.jobStatus = "Done";
-                if (urlMatch) job.outputRepoUrl = urlMatch[0];
-                logger.info({ jobId, outputRepoUrl: job.outputRepoUrl }, "quant done");
             }
             persistJobs();
             return;
         }
         }
     }catch(error) {
-        const job = jobsMap.get(jobId);
         if (job && job.jobType === "quant"){
             job.completedAt = new Date();
             job.jobStatus = "Error";
@@ -100,7 +103,7 @@ export function registerTriggerGGUFQuant(server: McpServer){
                 const client = await Client.connect("ggml-org/gguf-my-repo", {
                     token: accessToken as `hf_${string}`,
                     cookies: `session=${sessionCookie}`,
-                    status_callback: (status) => logger.info({status}, "space status")
+                    status_callback: (status) => logger.debug({status}, "space status")
                 });
 
                 const jobId = crypto.randomUUID()
@@ -119,7 +122,8 @@ export function registerTriggerGGUFQuant(server: McpServer){
 
                 persistJobs();
 
-                runQuantStream(client, [repoId, quantType, false, "IQ4_NL", isPrivate, null, false, 1, ""], jobId)
+                const quantParams: QuantParams = [repoId, quantType, false, "IQ4_NL", isPrivate, null, false, 1, ""];
+                runQuantStream(client, quantParams, jobId)
                 return {
                     content: [{
                         type: "text" as const,

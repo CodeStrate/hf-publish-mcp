@@ -50,7 +50,7 @@ async function appendToArchive(entries: [string, Job][]): Promise<void> {
         }
     } catch {}
     const merged = new Map([...existing, ...entries]);
-    const tempFile = archiveFile + ".tmp"
+    const tempFile = archiveFile + "." + process.pid + ".tmp"
     await writeFile(tempFile, JSON.stringify([...merged.entries()], null, 2));
     await rename(tempFile, archiveFile)
 }
