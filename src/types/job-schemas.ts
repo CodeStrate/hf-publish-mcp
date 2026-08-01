@@ -28,8 +28,22 @@ export const QuantJobSchema = BaseJobSchema.extend({
     outputRepoUrl: z.string().optional(),
 })
 
-export const JobSchema = z.discriminatedUnion("jobType", [UploadJobSchema, QuantJobSchema]);
+export const MergeJobSchema = BaseJobSchema.extend({
+    jobType: z.literal("merge"),
+    strategy: z.enum(["mergekit", "lora_fold", "lora_fold_unsloth"]),
+    isPrivate: z.boolean(),
+    // strategy-specific — one present depending on strategy:
+    mergekitConfig: z.string().optional(),   // raw YAML for mergekit
+    // lora_fold strategies
+    baseModel: z.string().optional(),   
+    adapterSource: z.string().optional(),
+    outputRepoUrl: z.string().optional(),
+    logs: z.string().optional(),
+})
+
+export const JobSchema = z.discriminatedUnion("jobType", [UploadJobSchema, QuantJobSchema, MergeJobSchema]);
 
 export type Job = z.infer<typeof JobSchema>
 export type UploadJob = z.infer<typeof UploadJobSchema>
 export type QuantJob = z.infer<typeof QuantJobSchema>
+export type MergeJob = z.infer<typeof MergeJobSchema>
