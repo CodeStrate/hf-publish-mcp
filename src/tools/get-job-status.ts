@@ -7,9 +7,9 @@ export function registerGetJobStatus(server: McpServer) {
     server.registerTool(
         "get_job_status",
         {
-            description: "Returns the status of any background job (upload or quant) by jobId.",
+            description: "Returns the status of any background job (upload, quant, or merge) by jobId.",
             inputSchema: {
-                jobId: z.string().describe("Job ID returned by upload_model or trigger_gguf_quant")
+                jobId: z.string().describe("Job ID returned by upload_model, trigger_gguf_quant, or trigger_model_merge")
             },
         },
         async ({ jobId }) => {
@@ -44,6 +44,10 @@ export function registerGetJobStatus(server: McpServer) {
                 } else if (job.jobType === "quant") {
                     result.quantType = job.quantType;
                     if (job.outputRepoUrl) result.outputRepoUrl = job.outputRepoUrl;
+                } else if (job.jobType === "merge") {
+                    result.strategy = job.strategy;
+                    if (job.outputRepoUrl) result.outputRepoUrl = job.outputRepoUrl;
+                    if (job.logs) result.logs = job.logs;
                 }
 
                 if (job.jobStatus === "Error") {

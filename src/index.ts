@@ -11,6 +11,7 @@ import { loadJobs } from "./utils/job-store";
 import { ensureAuthenticated } from "./client";
 import { registerManageJobs } from "./tools/manage-jobs";
 import { registerTriggerGGUFQuant } from "./tools/trigger-gguf-quant";
+import { registerTriggerModelMerge } from "./tools/trigger-model-merge";
 
 const server = new McpServer({
   name: "hf-publish",
@@ -24,6 +25,7 @@ registerGetJobStatus(server);
 registerUpdateModelCard(server);
 registerManageJobs(server);
 registerTriggerGGUFQuant(server);
+registerTriggerModelMerge(server);
 
 async function main() {
   await ensureAuthenticated();

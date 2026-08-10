@@ -1,12 +1,25 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getHFToken } from "../client";
 import { logger } from "../logger";
 import { jobsMap, persistJobs } from "../utils/job-store";
 import { MergeJobSchema, type MergeJob } from "../types/job-schemas";
+import { runLoraFoldStrategy, runMergekitStrategy } from "../utils/merge-utils";
 
-function runMerge(jobId: string){
-    // TODO
+async function runMerge(job: MergeJob){
+    try {
+        job.jobStatus = "Running";
+        persistJobs();
+        // dispatch based on strat
+        if (job.strategy === "mergekit") await runMergekitStrategy(job);
+        else await runLoraFoldStrategy(job) 
+    }catch (err) {
+        job.jobStatus = "Error";
+        job.error = String(err);
+        job.completedAt = new Date();
+        persistJobs();
+        logger.error({ err, jobId: job.jobId }, "merge failed");
+
+    }
 }
 
 export function registerTriggerModelMerge(server: McpServer) {
@@ -25,7 +38,7 @@ export function registerTriggerModelMerge(server: McpServer) {
         },
         async (input) => {
             const {strategy, mergekitConfig, baseModel, isPrivate, adapterSource, outputRepo} = input
-            logger.info({strategy, mergekitConfig, baseModel, adapterSource}, "triggering GGUF quant");
+            logger.info({strategy, mergekitConfig, baseModel, adapterSource}, "triggering model adapter merge");
             if(strategy === "mergekit" && !mergekitConfig) {
                 return { isError: true, content: [{ type: "text" as const, text: "mergekitConfig is required for mergekit strategy" }] };
                 }
@@ -51,6 +64,8 @@ export function registerTriggerModelMerge(server: McpServer) {
 
             jobsMap.set(jobId, job);
             persistJobs();
+
+            runMerge(job);
 
             return {
                 content: [{ type: "text" as const, text: JSON.stringify(
