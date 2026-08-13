@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { logger } from "../logger";
 import { jobsMap, persistJobs } from "../utils/job-store";
-import { MergeJobSchema, type MergeJob } from "../types/job-schemas";
+import { type MergeJob } from "../types/job-schemas";
 import { runLoraFoldStrategy, runMergekitStrategy } from "../utils/merge-utils";
 
 async function runMerge(job: MergeJob){
