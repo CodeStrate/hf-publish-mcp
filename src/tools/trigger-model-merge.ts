@@ -3,15 +3,13 @@ import { z } from "zod";
 import { logger } from "../logger";
 import { jobsMap, persistJobs } from "../utils/job-store";
 import { type MergeJob } from "../types/job-schemas";
-import { runLoraFoldStrategy, runMergekitStrategy } from "../utils/merge-utils";
+import { runMergekitStrategy } from "../utils/merge-utils";
 
 async function runMerge(job: MergeJob){
     try {
         job.jobStatus = "Running";
         persistJobs();
-        // dispatch based on strat
-        if (job.strategy === "mergekit") await runMergekitStrategy(job);
-        else await runLoraFoldStrategy(job) 
+        await runMergekitStrategy(job);
     }catch (err) {
         job.jobStatus = "Error";
         job.error = String(err);
@@ -26,28 +24,20 @@ export function registerTriggerModelMerge(server: McpServer) {
     server.registerTool(
         "trigger_model_merge",
         {
-            description: "Trigger an adapter model merge via mergekit (uvx) or lora_fold strategies. Uploads the merged model back to Hugging Face.",
+            description: "Trigger an adapter model merge via mergekit (uvx). Uploads the merged model back to Hugging Face.",
             inputSchema : {
-                    strategy: z.enum(["mergekit", "lora_fold", "lora_fold_unsloth"]),
+                    strategy: z.enum(["mergekit"]),
                     mergekitConfig: z.string().optional(),
                     isPrivate: z.boolean().default(false),
-                    baseModel: z.string().optional().describe("Base Model Repository of the Adapter to be merged."),   
-                    adapterSource: z.string().optional().describe("Local Path or HuggingFace Repository (owner/model) of the Adapter Model (whichever exists)"),
                     outputRepo: z.string().describe("Merge tool output repository name. eg. Qwen3.5-9B-Fable-Distill-merged")
             },
         },
         async (input) => {
-            const {strategy, mergekitConfig, baseModel, isPrivate, adapterSource, outputRepo} = input
-            logger.info({strategy, mergekitConfig, baseModel, adapterSource}, "triggering model adapter merge");
-            if(strategy === "mergekit" && !mergekitConfig) {
+            const {strategy, mergekitConfig, isPrivate, outputRepo} = input
+            logger.info({strategy, mergekitConfig}, "triggering model adapter merge");
+            if(!mergekitConfig) {
                 return { isError: true, content: [{ type: "text" as const, text: "mergekitConfig is required for mergekit strategy" }] };
                 }
-            if ((strategy === "lora_fold" || strategy === "lora_fold_unsloth") && !baseModel){
-                return { isError: true, content: [{ type: "text" as const, text: "baseModel is required for lora_fold strategies" }] };
-            }
-            if ((strategy === "lora_fold" || strategy === "lora_fold_unsloth") && !adapterSource){
-                return { isError: true, content: [{ type: "text" as const, text: "An adapterSource is required for lora_fold strategies" }] };
-            }
             const jobId = crypto.randomUUID()
             const job: MergeJob = {
                 repoId: outputRepo,
@@ -57,8 +47,6 @@ export function registerTriggerModelMerge(server: McpServer) {
                 startedAt: new Date(),
                 strategy,
                 mergekitConfig,
-                adapterSource,
-                baseModel,
                 isPrivate,
             }
 
