@@ -30,13 +30,9 @@ export const QuantJobSchema = BaseJobSchema.extend({
 
 export const MergeJobSchema = BaseJobSchema.extend({
     jobType: z.literal("merge"),
-    strategy: z.enum(["mergekit", "lora_fold", "lora_fold_unsloth"]),
+    strategy: z.enum(["mergekit"]),
     isPrivate: z.boolean(),
-    // strategy-specific — one present depending on strategy:
     mergekitConfig: z.string().optional(),   // raw YAML for mergekit
-    // lora_fold strategies
-    baseModel: z.string().optional(),   
-    adapterSource: z.string().optional(),
     outputRepoUrl: z.string().optional(),
     logs: z.string().optional(),
 })

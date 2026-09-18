@@ -13,7 +13,7 @@ export function registerManageJobs(server: McpServer){
             and clear to clean up the job persist directory.`,
             inputSchema:
             {   
-                jobType: z.enum(["upload", "quant"]).optional().describe("Filter Jobs by Job Type"),
+                jobType: z.enum(["upload", "quant", "merge"]).optional().describe("Filter Jobs by Job Type"),
                 action: z.enum(["list", "delete", "delete-after", "delete-before", "clear"]).describe("Action or operation to perform"),
                 status: z.enum(["Running", "Pending", "Retrying", "Error", "Done"]).optional().describe("Filter Jobs by Status"),
                 jobId: z.string().describe("Job ID to delete - single operation").optional(),
