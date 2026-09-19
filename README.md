@@ -43,12 +43,17 @@ The overlap is `inspect_repo` vs the official "Hub Repository Details" tool - bo
 | `list_model_repos` | List your HF models with likes, downloads, and last modified date |
 | `inspect_repo` | Verify expected files exist (config, tokenizer, weights) and return the model card |
 | `upload_model` | Upload a model or adapter directory to HF. Non-blocking — returns a `jobId` immediately |
-| `get_job_status` | Poll any background job (upload or quant) by `jobId`. Shows phase, current file, and elapsed time |
+| `get_job_status` | Poll any background job (upload, quant, or merge) by `jobId`. Shows phase, current file, and elapsed time |
 | `update_model_card` | Patch a model card README via surgical section edits, frontmatter merges, or full rewrite (dry run support: review changes before agent commits) |
-| `manage_jobs` | List, delete, or batch-clean job history (uploads and quant jobs) across active and archived files |
+| `manage_jobs` | List, delete, or batch-clean job history (uploads, quant, and merge jobs) across active and archived files |
 | `trigger_gguf_quant` | Trigger GGUF quantization via the ggml-org/gguf-my-repo Space. Non-blocking — returns a `jobId`. Requires `HF_GGUF_MY_SPACE_COOKIE` (see [Auth](#auth)) |
+| `trigger_model_merge` | Merge a LoRA adapter into its base model via `mergekit` (run locally through `uvx` — no manual Python setup). Non-blocking — returns a `jobId` |
 
 ## Getting Started
+
+**Requires - for the local `merge` tool [uv](https://docs.astral.sh/uv)**
+
+No need to setup a `venv` - it uses `uvx` directly
 
 **Requires [Bun](https://bun.sh)**
 
@@ -251,8 +256,9 @@ Bug reports: open an issue with the tool name, inputs (redact your token), and t
 
 ### v1.1.0
 - **Add** `trigger_gguf_quant` — trigger GGUF conversion via the ggml-org/gguf-my-repo Space. Non-blocking, returns a `jobId`. Auth via browser session cookie (`HF_GGUF_MY_SPACE_COOKIE`)
-- **Add** `get_job_status` — unified job polling for both upload and quant jobs (replaces `get_model_upload_status` and `get_quant_job_status`)
-- **Add** `manage_jobs` — unified job management for uploads and quant jobs (replaces `manage_upload_jobs`)
+- **Add** `trigger_model_merge` — merge a LoRA adapter into its base model via `mergekit`, run locally through `uvx`. Non-blocking, returns a `jobId`
+- **Add** `get_job_status` — unified job polling for upload, quant, and merge jobs (replaces `get_model_upload_status` and `get_quant_job_status`)
+- **Add** `manage_jobs` — unified job management for upload, quant, and merge jobs (replaces `manage_upload_jobs`)
 - **Refactor** Unified job store (`job-store.ts`) replacing separate upload and quant stores
 
 ### v1.0.3
