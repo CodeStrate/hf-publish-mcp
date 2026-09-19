@@ -16,6 +16,10 @@ const BaseJobSchema = z.object({
 
 export const UploadJobSchema = BaseJobSchema.extend({
     jobType: z.literal("upload"),
+    localDir: z.string(),
+    repoType: z.enum(["model", "dataset", "space"]).default("model"),
+    visibility: z.enum(["public", "private", "protected"]).default("public"),
+    commitMessage: z.string().default("Upload model files"),
     repoUrl: z.string(),
     currentFile: z.string(),
     phase: z.enum(["preuploading", "uploadingLargeFiles", "committing"]).optional(),

@@ -2,60 +2,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { logger } from "../logger";
 import { getHFToken } from "../client";
-import { createRepo, uploadFilesWithProgress } from "@huggingface/hub";
-import { readdir, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { createRepo } from "@huggingface/hub";
+import { stat } from "node:fs/promises";
 import { type UploadJob } from "../types/job-schemas";
 import { jobsMap, persistJobs } from "../utils/job-store";
+import { collectFilesForUpload, runUpload } from "../utils/upload-utils";
 
-
-async function collectFilesForUpload(directory:string): Promise<{path: string; content: Blob}[]> {
-    const entries = await readdir(directory, { recursive: true, withFileTypes: true});
-    return Promise.all(entries
-    .filter(entry => {
-        // expand entry filter and exclude hidden dirs so non empty dir items can also be excluded from upload (.git)
-        if(!entry.isFile()) return false;
-        const rel = relative(directory, join(entry.parentPath, entry.name));
-        return !rel.split("/").some(segment => segment.startsWith("."));
-    })
-    .map(async entry => {
-        const absolutePath = join(entry.parentPath, entry.name)
-        // Bun file is sync and lazy, helps in big model uploads by streaming and not full load shards.
-        return {path: relative(directory, absolutePath), content: Bun.file(absolutePath)}
-    }))
-}
-
-
-async function runUpload(
-    job: UploadJob,
-    files: { path: string; content: Blob }[],
-    repo: { type: "model" | "dataset" | "space"; name: string },
-    commitMessage: string,
-    accessToken: string
-) {
-    job.jobStatus = "Running";
-    try {
-        const gen = uploadFilesWithProgress({ repo, files, commitTitle: commitMessage, accessToken });
-        for await (const event of gen) {
-            if (event.event === "phase") {
-                job.phase = event.phase;
-                logger.info(`[${job.jobId}] phase: ${event.phase}`);
-            } else if (event.event === "fileProgress" && event.state === "uploading") {
-                job.currentFile = event.path;
-            }
-        }
-        job.jobStatus = "Done";
-        job.completedAt = new Date();
-        logger.info(`[${job.jobId}] upload complete`);
-        await persistJobs();
-    } catch (error) {
-        job.jobStatus = "Error";
-        job.error = error instanceof Error ? error.message : String(error);
-        job.completedAt = new Date();
-        logger.error({ error }, `[${job.jobId}] upload failed`);
-        await persistJobs();
-    }
-}
 
 export function registerUploadModel(server: McpServer) {
     server.registerTool(
@@ -108,6 +60,10 @@ export function registerUploadModel(server: McpServer) {
                     repoId: input.repoId,
                     repoUrl,
                     currentFile: "",
+                    localDir: input.localDir,
+                    repoType: input.repoType,
+                    visibility: input.visibility,
+                    commitMessage: input.commitMessage,
                     startedAt: new Date(),
                 };
                 jobsMap.set(jobId, job);
