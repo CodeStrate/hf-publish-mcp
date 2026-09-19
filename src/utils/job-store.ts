@@ -3,11 +3,12 @@ import { join } from "node:path";
 import { JobSchema, type Job } from "../types/job-schemas";
 import { logger } from "../logger";
 import { HF_MCP_DIR, JOBS_FILE } from "./constants";
+import { parseEnvInteger } from "./simple-utils";
 
 export const jobsMap = new Map<string, Job>();
 
 const ARCHIVE_PATTERN = /^hf-mcp-jobs\.(\d{4}-\d{2}-\d{2})\.json$/;
-const MAX_ACTIVE_COMPLETED = Number(process.env.HF_MCP_MAX_COMPLETED_JOBS ?? 50);
+const MAX_ACTIVE_COMPLETED = parseEnvInteger("MAX_COMPLETED_JOBS", 50, {min: 2, max: 50});
 
 // Serializes all writes — prevents concurrent worker calls from clobbering each other
 let _writeChain = Promise.resolve();

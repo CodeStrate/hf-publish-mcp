@@ -67,9 +67,9 @@ export function registerUploadModel(server: McpServer) {
                     startedAt: new Date(),
                 };
                 jobsMap.set(jobId, job);
-                await persistJobs()
+                persistJobs()
 
-                runUpload(job, files, repo, input.commitMessage, accessToken).catch(() => {});
+                runUpload(job, files, repo, input.commitMessage, accessToken).catch(() => {}).finally(() => persistJobs());
 
                 return {
                     content: [{
