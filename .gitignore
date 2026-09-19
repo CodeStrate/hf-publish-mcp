@@ -39,3 +39,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Agent MD
 CLAUDE.md
 logs/
+
+# Bun Tests
+*.test.ts

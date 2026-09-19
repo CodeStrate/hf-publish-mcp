@@ -17,9 +17,18 @@ const MODEL_WEIGHTS = [
   ".bin" //old format compatibility
 ]
 
+const GRADIO_RETRYABLE_STATUS_STRINGS = [
+  "currently busy",
+  "Connection errored out",
+  "Space metadata could not be loaded",
+  "Could not resolve app config",
+  "Could not get space status"
+]
+
 export {
     HF_MCP_DIR,
     JOBS_FILE,
     MODEL_WEIGHTS,
     REQUIRED_FILES,
+    GRADIO_RETRYABLE_STATUS_STRINGS
 }
