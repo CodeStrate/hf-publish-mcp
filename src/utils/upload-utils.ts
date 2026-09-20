@@ -43,22 +43,12 @@ export async function runUpload(
     files: { path: string; content: Blob }[],
     repo: { type: "model" | "dataset" | "space"; name: string },
     commitMessage: string,
-    accessToken: string
-) {
-   job.jobStatus = "Running";
-   try{
+    accessToken: string,
+    maxRetries? : number | undefined
+)   {
         const params: UploadParams = {job, repo, files, commitMessage, accessToken}
-        await doUpload(params);
-        job.jobStatus = "Done";
-        job.completedAt = new Date();
-        logger.info(`[${job.jobId}] upload complete`);
-   } catch (err) {
-        job.jobStatus = "Error";
-        job.error = err instanceof Error ? err.message : String(err);
-        job.completedAt = new Date();
-        logger.error({ err }, `[${job.jobId}] upload failed`);
-   }
-}
+        await withRetry(job, maxRetries, () => doUpload(params)); // will also handle 0 case. 
+    }
 
 export async function resumeUploads(
     job: UploadJob,

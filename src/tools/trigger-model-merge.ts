@@ -4,20 +4,12 @@ import { logger } from "../logger";
 import { jobsMap, persistJobs } from "../utils/job-store";
 import { type MergeJob } from "../types/job-schemas";
 import { runMergekitStrategy } from "../utils/merge-utils";
+import { retryShape, withRetry } from "../utils/retry";
 
-async function runMerge(job: MergeJob){
-    try {
-        job.jobStatus = "Running";
-        persistJobs();
-        await runMergekitStrategy(job);
-    }catch (err) {
-        job.jobStatus = "Error";
-        job.error = String(err);
-        job.completedAt = new Date();
-        persistJobs();
-        logger.error({ err, jobId: job.jobId }, "merge failed");
-
-    }
+async function runMerge(job: MergeJob, maxRetries?: number | undefined){
+    // with retry handles catching errors.
+    await withRetry(job, maxRetries, () => runMergekitStrategy(job));
+    persistJobs()
 }
 
 export function registerTriggerModelMerge(server: McpServer) {
@@ -29,7 +21,8 @@ export function registerTriggerModelMerge(server: McpServer) {
                     strategy: z.enum(["mergekit"]),
                     mergekitConfig: z.string().optional(),
                     isPrivate: z.boolean().default(false),
-                    outputRepo: z.string().describe("Merge tool output repository name. eg. Qwen3.5-9B-Fable-Distill-merged")
+                    outputRepo: z.string().describe("Merge tool output repository name. eg. Qwen3.5-9B-Fable-Distill-merged"),
+                    ...retryShape("merge")
             },
         },
         async (input) => {
@@ -48,12 +41,13 @@ export function registerTriggerModelMerge(server: McpServer) {
                 strategy,
                 mergekitConfig,
                 isPrivate,
+                maxRetries: input.maxRetries,
             }
 
             jobsMap.set(jobId, job);
             persistJobs();
 
-            runMerge(job);
+            runMerge(job, input.maxRetries);
 
             return {
                 content: [{ type: "text" as const, text: JSON.stringify(

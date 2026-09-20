@@ -7,6 +7,7 @@ import { stat } from "node:fs/promises";
 import { type UploadJob } from "../types/job-schemas";
 import { jobsMap, persistJobs } from "../utils/job-store";
 import { collectFilesForUpload, runUpload } from "../utils/upload-utils";
+import { retryShape } from "../utils/retry";
 
 
 export function registerUploadModel(server: McpServer) {
@@ -20,6 +21,7 @@ export function registerUploadModel(server: McpServer) {
                 repoType: z.enum(["model", "dataset", "space"]).default("model").describe("The type of repository: model (default), dataset, space"),
                 visibility: z.enum(["public", "private", "protected"]).default("public").describe("Repository visibility"),
                 commitMessage: z.string().default("Upload model files").describe("Commit message"),
+                ...retryShape("upload"),
             },
         },
         async (input) => {
@@ -64,12 +66,13 @@ export function registerUploadModel(server: McpServer) {
                     repoType: input.repoType,
                     visibility: input.visibility,
                     commitMessage: input.commitMessage,
+                    maxRetries: input.maxRetries,
                     startedAt: new Date(),
                 };
                 jobsMap.set(jobId, job);
                 persistJobs()
 
-                runUpload(job, files, repo, input.commitMessage, accessToken).catch(() => {}).finally(() => persistJobs());
+                runUpload(job, files, repo, input.commitMessage, accessToken, input.maxRetries).catch(() => {}).finally(() => persistJobs());
 
                 return {
                     content: [{
