@@ -4,6 +4,7 @@ import { HubApiError } from "@huggingface/hub";
 import { GRADIO_RETRYABLE_STATUS_STRINGS } from "./constants";
 import type { RetryableError, SleepFn } from "../types/util-types";
 import { z } from "zod";
+import { logger } from "../logger";
 
 // common shape to opt in retries for any tool
 export function retryShape(context: string) {
@@ -48,6 +49,7 @@ export async function withRetry<T>(
             const result = await attemptFn();
             job.jobStatus = "Done";
             job.completedAt = new Date();
+            logger.info({jobId: job.jobId, jobType: job.jobType}, "Job completed successfully.");
             return result;
         }catch (err) {
             lastError = err;
@@ -67,5 +69,6 @@ export async function withRetry<T>(
     job.jobStatus = "Error";
     job.error = lastError instanceof Error ? lastError.message : String(lastError)
     job.completedAt = new Date();
+    logger.error({error: lastError, jobId: job.jobId, jobType: job.jobType}, "Job failed.");
     return undefined;
 }
