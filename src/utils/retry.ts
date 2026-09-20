@@ -2,8 +2,16 @@ import type { Job } from "../types/job-schemas";
 import { parseEnvInteger } from "./simple-utils";
 import { HubApiError } from "@huggingface/hub";
 import { GRADIO_RETRYABLE_STATUS_STRINGS } from "./constants";
+import type { RetryableError, SleepFn } from "../types/util-types";
+import { z } from "zod";
 
-type RetryableError = NodeJS.ErrnoException & Error & { retryable?: boolean }
+// common shape to opt in retries for any tool
+export function retryShape(context: string) {
+    return {
+        maxRetries: z.number().int().min(1).max(5).optional()
+            .describe(`Number of retry attempts for transient ${context} failures.`)
+    };
+}
 
 export function isRetryableError(err:unknown): boolean {
     if(!(err instanceof Error)) return false;
@@ -21,8 +29,6 @@ export function isRetryableError(err:unknown): boolean {
     return GRADIO_RETRYABLE_STATUS_STRINGS.some(el => err.message.toLowerCase().includes(el.toLowerCase()));
 }
 
-type SleepFn = (ms: number) => Promise<void>; // not a function its a schema of how a sleep fn should be like (params, return type)
-
 const defaultSleep: SleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function withRetry<T>(
@@ -33,7 +39,7 @@ export async function withRetry<T>(
 ): Promise<T | undefined> {
 
     job.jobStatus = "Running";
-    const retryBudget = maxRetries ?? parseEnvInteger("DEFAULT_RETRIES", 3, {min: 1, max: 5});
+    const retryBudget = maxRetries ?? parseEnvInteger("DEFAULT_RETRIES", 0, {min: 0, max: 5});
     let lastError: unknown;
 
     // retry loop

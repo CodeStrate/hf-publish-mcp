@@ -4,6 +4,8 @@ import { JobSchema, type Job } from "../types/job-schemas";
 import { logger } from "../logger";
 import { HF_MCP_DIR, JOBS_FILE } from "./constants";
 import { parseEnvInteger } from "./simple-utils";
+import { resumeUploads } from "./upload-utils";
+import { getHFToken } from "../client";
 
 export const jobsMap = new Map<string, Job>();
 
@@ -75,11 +77,18 @@ export async function loadJobs(): Promise<void> {
         }
         let hadStale = false;
         for (const job of jobsMap.values()) {
+            // if its a merge/quant, we can't resume
             if (job.jobStatus === "Running" || job.jobStatus === "Pending" || job.jobStatus === "Retrying") {
-                job.jobStatus = "Error";
-                job.error = "Job interrupted — server restarted";
-                job.completedAt = new Date();
-                hadStale = true;
+                if (job.jobType !== "upload"){
+                    job.jobStatus = "Error";
+                    job.error = "Job interrupted";
+                    job.completedAt = new Date();
+                    hadStale = true;
+                } else {
+                    resumeUploads(job, getHFToken())
+                    .then(() => persistJobs())
+                    .catch(err => logger.error({err, jobId: job.jobId}, "Upload resume failed"));
+                }
             }
         }
         if (hadStale) persistJobs();

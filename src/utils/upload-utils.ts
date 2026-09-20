@@ -4,14 +4,7 @@ import { withRetry } from "./retry";
 import { uploadFilesWithProgress } from "@huggingface/hub";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
-
-export interface UploadParams {
-    job: UploadJob;
-    files: { path: string; content: Blob }[];
-    repo: { type: "model" | "dataset" | "space"; name: string };
-    commitMessage: string;
-    accessToken: string;
-}
+import type { UploadParams } from "../types/util-types";
 
 export async function collectFilesForUpload(directory:string): Promise<{path: string; content: Blob}[]> {
     const entries = await readdir(directory, { recursive: true, withFileTypes: true});
