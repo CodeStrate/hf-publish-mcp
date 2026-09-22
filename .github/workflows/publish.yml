@@ -1,0 +1,37 @@
+name: Publish to npm
+
+on:
+  push:
+    branches:
+      - deployment
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm CLI supports trusted publishing (requires >=11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Build
+        run: bun run build
+
+      - name: Stage publish (never goes live on its own — requires npm stage approve with 2FA)
+        run: npm stage publish --access public --provenance
