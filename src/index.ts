@@ -15,7 +15,7 @@ import { registerTriggerModelMerge } from "./tools/trigger-model-merge";
 
 const server = new McpServer({
   name: "hf-publish",
-  version: "1.0.4",
+  version: "1.1.0",
 });
 
 registerInspectRepo(server);

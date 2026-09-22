@@ -1,7 +1,7 @@
 {
   "name": "hf-publish-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for the fine-tuner's publish workflow on Hugging Face Hub — upload models, inspect repos, and maintain model cards.",
+  "version": "1.1.0",
+  "description": "MCP server for the fine-tuner's publish workflow on Hugging Face Hub — upload models, inspect repos, maintain model cards.",
   "type": "module",
   "bin": {
     "hf-publish": "dist/index.js"

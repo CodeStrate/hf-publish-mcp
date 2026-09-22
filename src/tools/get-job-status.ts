@@ -46,7 +46,7 @@ export function registerGetJobStatus(server: McpServer) {
                     if (job.outputRepoUrl) result.outputRepoUrl = job.outputRepoUrl;
                 } else if (job.jobType === "merge") {
                     result.strategy = job.strategy;
-                    if (job.outputRepoUrl) result.outputRepoUrl = job.outputRepoUrl;
+                    result.outputDir = job.outputDir;
                     if (job.logs) result.logs = job.logs;
                 }
 

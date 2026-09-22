@@ -16,29 +16,31 @@ export function registerTriggerModelMerge(server: McpServer) {
     server.registerTool(
         "trigger_model_merge",
         {
-            description: "Trigger an adapter model merge via mergekit (uvx). Uploads the merged model back to Hugging Face.",
+            description: "Trigger an adapter model merge via mergekit (uvx). Saves it on disk for `upload_model` tool to upload it to Hugging Face.",
             inputSchema : {
+                    repoId: z.string().describe("Merged model repository name for HuggingFace Upload, Owner/repo-name. eg. Google/Gemma-4-E2B"),
                     strategy: z.enum(["mergekit"]),
                     mergekitConfig: z.string().optional(),
                     isPrivate: z.boolean().default(false),
-                    outputRepo: z.string().describe("Merge tool output repository name. eg. Qwen3.5-9B-Fable-Distill-merged"),
+                    outputDir: z.string().describe("Merge tool output directory name. eg. Qwen3.5-9B-Fable-Distill-merged"),
                     ...retryShape("merge")
             },
         },
         async (input) => {
-            const {strategy, mergekitConfig, isPrivate, outputRepo} = input
+            const {repoId, strategy, mergekitConfig, isPrivate, outputDir} = input
             logger.info({strategy, mergekitConfig}, "triggering model adapter merge");
             if(!mergekitConfig) {
                 return { isError: true, content: [{ type: "text" as const, text: "mergekitConfig is required for mergekit strategy" }] };
                 }
             const jobId = crypto.randomUUID()
             const job: MergeJob = {
-                repoId: outputRepo,
+                repoId,
                 jobId,
                 jobType: "merge",
                 jobStatus: "Pending",
                 startedAt: new Date(),
                 strategy,
+                outputDir,
                 mergekitConfig,
                 isPrivate,
                 maxRetries: input.maxRetries,

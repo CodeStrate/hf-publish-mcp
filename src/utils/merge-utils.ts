@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { logger } from "../logger";
 import { getHFToken } from "../client";
 import { writeFile, rm } from "node:fs/promises";
-import { persistJobs } from "./job-store";
 import { type MergeJob } from "../types/job-schemas";
 import { createRepo } from "@huggingface/hub";
 
@@ -36,30 +35,28 @@ async function spawnWorkerStream(job: MergeJob, cmd: string[]): Promise<number> 
 async function runMergekitStrategy(job: MergeJob) {
     const token = getHFToken();
     const tempConfig = join(tmpdir(), `mergekit_${job.jobId}.yaml`);
-    const tempOutput = join(tmpdir(), `mergekit_out_${job.jobId}`);
+    // merge jobs can be large so needs caching (to be cleaned up)
+    const tempMergeCacheDir = join(tmpdir(), `mergekit_lora_cache_${job.jobId}`);
     logger.info({ jobId: job.jobId, outputRepo: job.repoId }, "mergekit strategy started");
     await writeFile(tempConfig, job.mergekitConfig as string);
 
-    try {
-        await createRepo({ repo: { name: job.repoId, type: "model" }, private: job.isPrivate, accessToken: token });
-    } catch (error: any) {
-        if (!error?.message?.includes("409") && !error?.message?.includes("already exist")) throw error;
-    }
+   const cmd = [
+    "uvx", "--python", "3.12", "--from", "mergekit", "mergekit-yaml",
+    tempConfig, job.outputDir, "--trust-remote-code",
+    "--lora-merge-cache", tempMergeCacheDir
+];
 
-    const cmd = ["uvx", "mergekit-yaml", tempConfig, tempOutput, "--upload-to-hub", job.repoId, "--hf-transfer", "--trust-remote-code"];
     logger.info({ jobId: job.jobId, cmd }, "spawning mergekit subprocess");
 
     try {
         const exitCode = await spawnWorkerStream(job, cmd);
         if (exitCode !== 0) throw new Error(`${job.strategy} exited with code ${exitCode}`);
-        job.outputRepoUrl = `https://huggingface.co/${job.repoId}`;
-        job.jobStatus = "Done";
-        job.completedAt = new Date();
-        persistJobs();
-        logger.info({ jobId: job.jobId, outputRepo: job.repoId }, "mergekit strategy done");
+    }catch(err){
+        // output dir has gone bad/corrupt, not auto cleaning it considering model hallucinations.
+        throw err
     } finally {
         await rm(tempConfig, { force: true }).catch(() => {});
-        await rm(tempOutput, { recursive: true, force: true }).catch(() => {});
+        await rm(tempMergeCacheDir, {recursive: true, force: true}).catch(() => {});
     }
 }
 

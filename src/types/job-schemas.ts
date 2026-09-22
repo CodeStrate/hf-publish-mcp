@@ -37,7 +37,7 @@ export const MergeJobSchema = BaseJobSchema.extend({
     strategy: z.enum(["mergekit"]),
     isPrivate: z.boolean(),
     mergekitConfig: z.string().optional(),   // raw YAML for mergekit
-    outputRepoUrl: z.string().optional(),
+    outputDir: z.string(),
     logs: z.string().optional(),
 })
 
