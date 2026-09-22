@@ -7,9 +7,9 @@ export function registerGetJobStatus(server: McpServer) {
     server.registerTool(
         "get_job_status",
         {
-            description: "Returns the status of any background job (upload, quant, or merge) by jobId.",
+            description: "Returns the status of any background job (upload or quant) by jobId.",
             inputSchema: {
-                jobId: z.string().describe("Job ID returned by upload_model, trigger_gguf_quant, or trigger_model_merge")
+                jobId: z.string().describe("Job ID returned by upload_model or trigger_gguf_quant")
             },
         },
         async ({ jobId }) => {

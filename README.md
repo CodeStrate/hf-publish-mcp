@@ -42,11 +42,11 @@ The overlap is `inspect_repo` vs the official "Hub Repository Details" tool - bo
 |---|---|
 | `list_model_repos` | List your HF models with likes, downloads, and last modified date |
 | `inspect_repo` | Verify expected files exist (config, tokenizer, weights) and return the model card |
-| `upload_model` | Upload a model or adapter directory to HF. Non-blocking — returns a `jobId` immediately |
+| `upload_model` | Upload a model or adapter directory to HF. Non-blocking — returns a `jobId` immediately. Resumes automatically if interrupted by a server restart; opt-in retry (`maxRetries`) on transient failures |
 | `get_job_status` | Poll any background job (upload or quant) by `jobId`. Shows phase, current file, and elapsed time |
 | `update_model_card` | Patch a model card README via surgical section edits, frontmatter merges, or full rewrite (dry run support: review changes before agent commits) |
 | `manage_jobs` | List, delete, or batch-clean job history (uploads and quant jobs) across active and archived files |
-| `trigger_gguf_quant` | Trigger GGUF quantization via the ggml-org/gguf-my-repo Space. Non-blocking — returns a `jobId`. Requires `HF_GGUF_MY_SPACE_COOKIE` (see [Auth](#auth)) |
+| `trigger_gguf_quant` | Trigger GGUF quantization via the ggml-org/gguf-my-repo Space. Non-blocking — returns a `jobId`. Requires `HF_GGUF_MY_SPACE_COOKIE` (see [Auth](#auth)). **Experimental**
 
 ## Getting Started
 
@@ -61,7 +61,6 @@ bunx hf-publish-mcp
 Or clone for local development..
 
 ## Development
-
 
 ```bash
 git clone https://github.com/CodeStrate/hf-publish-mcp
@@ -243,13 +242,16 @@ PRs welcome. A few guidelines:
 - **One concern per PR** - keep diffs reviewable
 - Open an issue first for anything beyond a bug fix or small improvement
 - `update_model_card` is the most sensitive tool - changes there should be tested against a real card; `dryRun: true` exists for this
-- `trigger_gguf_quant` is experimental — the Space API is undocumented and may change. Auth requires a browser session cookie (`HF_GGUF_MY_SPACE_COOKIE`); see [GGUF Quantization Auth](#gguf-quantization-auth) for setup. Error output from the Space is surfaced directly in the job status
+- `trigger_gguf_quant` is experimental — the Space API is undocumented and may change, and reliability depends on `ggml-org/gguf-my-repo`'s own queue and availability, not just this server. Auth requires a browser session cookie (`HF_GGUF_MY_SPACE_COOKIE`); see [GGUF Quantization Auth](#gguf-quantization-auth) for setup. Error output from the Space is surfaced directly in the job status
+- Local model merging via `mergekit` was evaluated and isn't included in this release. It hit a real upstream `mergekit`/`transformers` compatibility bug and separate memory constraints during testing that weren't resolved in time to ship reliably — not something worth including half-working. May return in a future release once those are sorted out
 
 Bug reports: open an issue with the tool name, inputs (redact your token), and the error message or unexpected output.
 
 ## Changelog
 
 ### v1.1.0
+- **Add** Upload resume — `upload_model` jobs interrupted by a server restart now resume automatically instead of being marked `Error`
+- **Add** Opt-in upload retry — `upload_model` accepts `maxRetries` to retry transient failures (network errors, 429/5xx) during a live upload; absent by default, never automatic
 - **Add** `trigger_gguf_quant` — trigger GGUF conversion via the ggml-org/gguf-my-repo Space. Non-blocking, returns a `jobId`. Auth via browser session cookie (`HF_GGUF_MY_SPACE_COOKIE`)
 - **Add** `get_job_status` — unified job polling for both upload and quant jobs (replaces `get_model_upload_status` and `get_quant_job_status`)
 - **Add** `manage_jobs` — unified job management for uploads and quant jobs (replaces `manage_upload_jobs`)
