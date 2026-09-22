@@ -56,7 +56,7 @@ export async function withRetry<T>(
             const canRetry = isRetryableError(err) && attempt < retryBudget;
             if (!canRetry) break;
 
-            job.retryCount = attempt + 1;
+            job.retryCount = (job.retryCount ?? 0)+ 1;
             job.jobStatus = "Retrying";
             const backoffMs = Math.min((2 ** attempt) * 1000, 30_000) + Math.random() * 250; 
                 // always retry after 1-3s (depending on attempts) with random jitter of 0-250ms
